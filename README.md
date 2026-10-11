@@ -9,19 +9,23 @@ decisions through a gate that a human approves. Every write is checked by
 deterministic code, never by the model.
 
 ```text
-developer in Claude Code, Codex, or Cursor:  /decinav-plan "add report export"
+developer in Claude Code:  /decinav:decinav-plan "add report export"
     -> agent reads the validated decisions       decinav context --format json
     -> agent writes a PRD from the template      decinav prd new / prd lint
     -> agent checks the blast radius             decinav impact <prd> --save
     -> agent proposes new decisions              decinav propose --from-file
     -> deterministic gate validates and publishes them as proposed
     -> a human accepts or rejects                decinav accept / reject
-    -> the commit hook requires [ADR-XXXX] on src/ and infra/ changes
+    -> the commit hook asks for [ADR-XXXX] on changes to your code folders
 ```
 
 The durable source of truth is a folder of Markdown files under `docs/adr/`,
 reviewable in any pull request. The graph, the freshness signals, and the
 browser workbench are derived from those files.
+
+![The decinav workbench: a decision graph with one decision open, showing that its sources changed since it was last checked](docs/images/workbench-graph.jpg)
+
+*The workbench on a demo project. ADR-0007 is open: a commit touched its source file after it was accepted, so it reads "sources changed".*
 
 ## 60-second start
 
@@ -29,6 +33,14 @@ browser workbench are derived from those files.
 pipx install git+https://github.com/onestopengineering/decinav   # brew install pipx, if needed
 cd your-repo
 decinav setup                # finds claude or codex on PATH, saves .decinav/config.json
+```
+
+Try it on a demo project first, no repository of your own needed:
+
+```bash
+git clone https://github.com/onestopengineering/decinav && cd decinav
+python3 scripts/build_demo.py /tmp/parcel   # needs decinav installed, as above
+decinav ui --project /tmp/parcel
 ```
 
 Existing product with code:
@@ -274,6 +286,15 @@ who do not use the CLI.
 The server binds only to a loopback address, embeds a random per-process token
 in the served page, sends no CORS permission, loads no internet dependency, and
 serves only its packaged assets.
+
+Before a feature is built, the impact view shows which decisions it changes (red),
+which it relies on (blue), and which decisions are still missing (green, dashed):
+
+![PRD impact: affected decisions in red, prerequisites in blue, a missing decision in green](docs/images/workbench-impact.jpg)
+
+The timeline lists decisions in the order they were made, with what replaced what:
+
+![Timeline of decisions with status, freshness, and a replacement chain](docs/images/workbench-timeline.jpg)
 
 ## Headless and CI
 

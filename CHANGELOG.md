@@ -13,6 +13,7 @@ headless use.
 
 ### Added
 
+- `scripts/build_demo.py` builds "Parcel", a fictional demo repository, through the real workflow, so anyone can try the workbench without their own repository. README screenshots come from it.
 - `decinav setup`: detects `claude` or `codex` on PATH and saves `.decinav/config.json`; every model-backed command and the browser use it. Built-in isolated runners (empty directory, no tools, prompt on stdin). `DECINAV_AI_CMD` remains an override for CI.
 - Browser Setup tab: model selector that writes the same config; model-backed buttons stay disabled until a model exists.
 - `init` states that nothing is committed and how to undo.
