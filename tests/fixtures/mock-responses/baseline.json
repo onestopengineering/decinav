@@ -1,0 +1,8 @@
+{
+  "records": [
+    {
+      "filename": "0001-baseline.md",
+      "content": "---\nschema_version: 2\nid: \"ADR-0001\"\ntitle: \"Legacy commerce system baseline\"\nstatus: \"baseline\"\ndate: \"2026-08-27\"\ndomain: \"system\"\ndepends_on: []\nsupersedes: []\n---\n\n# Legacy commerce system baseline\n\n## Context\n\nThe repository contains a frontend package, a Maven catalog service, a Python worker, PostgreSQL, Docker Compose, Terraform, and a Kubernetes deployment.\n\n## Baseline\n\nThe catalog service and worker depend on PostgreSQL. Docker Compose describes the local runtime topology, while Terraform and Kubernetes describe deployment concerns.\n\n## Consequences\n\nFuture decisions can reference this observed Day 0 structure without treating inferred details as verified facts.\n\n## Sources\n\n- package.json\n- docker-compose.yml\n- infra/main.tf\n- deploy/api-deployment.yaml\n- services/catalog/pom.xml\n- services/worker/requirements.txt\n"
+    }
+  ]
+}

@@ -1,0 +1,3 @@
+The event-driven importer must retain PostgreSQL as the system of record.
+Failed import events require retry visibility and must not be silently dropped.
+

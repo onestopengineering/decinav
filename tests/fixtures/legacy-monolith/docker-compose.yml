@@ -1,0 +1,16 @@
+services:
+  web:
+    build: .
+    depends_on:
+      - catalog
+  catalog:
+    build: services/catalog
+    depends_on:
+      - postgres
+  worker:
+    build: services/worker
+    depends_on:
+      - postgres
+  postgres:
+    image: postgres:16
+

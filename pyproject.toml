@@ -1,0 +1,77 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "decinav"
+version = "0.8.0"
+description = "Architecture decisions as a validated graph your coding agent consults before changing the system"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+authors = [
+  { name = "OneStop Engineering" },
+]
+keywords = [
+  "adr",
+  "architecture-decision-records",
+  "architecture",
+  "knowledge-graph",
+  "coding-agent",
+  "claude-code",
+  "codex",
+  "prd",
+  "mermaid",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: Software Development :: Documentation",
+  "Topic :: Software Development :: Libraries",
+]
+dependencies = [
+  "PyYAML>=6.0.2,<7",
+  "typer>=0.12.5,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3,<10",
+]
+
+[project.urls]
+Homepage = "https://github.com/onestopengineering/decinav"
+Repository = "https://github.com/onestopengineering/decinav"
+Issues = "https://github.com/onestopengineering/decinav/issues"
+Changelog = "https://github.com/onestopengineering/decinav/blob/main/CHANGELOG.md"
+
+[project.scripts]
+decinav = "decinav.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/decinav"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "src/decinav",
+  "tests",
+  "scripts",
+  "docs",
+  "README.md",
+  "CHANGELOG.md",
+  "LICENSE",
+  "pyproject.toml",
+]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = ["tests"]

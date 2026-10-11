@@ -1,0 +1,520 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="A plain-language architecture diagram for decinav.">
+  <title>How decinav works</title>
+  <style>
+    :root {
+      --ink: #172033;
+      --muted: #5d677b;
+      --line: #cfd6e4;
+      --canvas: #f4f6fb;
+      --panel: #ffffff;
+      --navy: #173b63;
+      --blue: #1769e0;
+      --blue-soft: #eaf2ff;
+      --violet: #6e48d7;
+      --violet-soft: #f1edff;
+      --green: #16805a;
+      --green-soft: #eaf8f1;
+      --orange: #b95f0b;
+      --orange-soft: #fff3e5;
+      --red: #b9384b;
+      --red-soft: #ffedf0;
+      --shadow: 0 16px 45px rgba(26, 43, 73, .08);
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 12% 4%, rgba(23, 105, 224, .10), transparent 26rem),
+        radial-gradient(circle at 90% 14%, rgba(110, 72, 215, .09), transparent 30rem),
+        var(--canvas);
+      font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.5;
+    }
+
+    a { color: inherit; }
+    button { font: inherit; }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 64px;
+      padding: 0 28px;
+      background: rgba(255, 255, 255, .90);
+      border-bottom: 1px solid rgba(207, 214, 228, .85);
+      backdrop-filter: blur(14px);
+    }
+
+    .brand { display: flex; align-items: center; gap: 12px; font-weight: 800; }
+    .brand-mark {
+      display: grid;
+      place-items: center;
+      width: 34px;
+      height: 34px;
+      color: #fff;
+      background: var(--navy);
+      border-radius: 10px;
+      font-size: 14px;
+      letter-spacing: -.04em;
+    }
+    .topnav { display: flex; align-items: center; gap: 10px; }
+    .topnav a {
+      padding: 8px 12px;
+      color: var(--muted);
+      border-radius: 8px;
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 700;
+    }
+    .topnav a:hover { color: var(--ink); background: #eef2f8; }
+
+    main { width: min(1500px, calc(100% - 40px)); margin: 0 auto; padding: 54px 0 80px; }
+    .hero { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(320px, .7fr); gap: 38px; align-items: end; }
+    .eyebrow {
+      margin: 0 0 12px;
+      color: var(--blue);
+      font-size: 12px;
+      font-weight: 900;
+      letter-spacing: .13em;
+      text-transform: uppercase;
+    }
+    h1 { margin: 0; max-width: 900px; font-size: clamp(42px, 5vw, 72px); line-height: 1.02; letter-spacing: -.045em; }
+    .lead { max-width: 880px; margin: 22px 0 0; color: var(--muted); font-size: clamp(18px, 2vw, 22px); }
+    .hero-note {
+      padding: 24px;
+      background: rgba(255, 255, 255, .82);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      box-shadow: var(--shadow);
+    }
+    .hero-note strong { display: block; margin-bottom: 8px; color: var(--navy); font-size: 16px; }
+    .hero-note p { margin: 0; color: var(--muted); }
+
+    .mental-model {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin-top: 34px;
+    }
+    .model-item { padding: 16px 18px; background: #fff; border: 1px solid var(--line); border-radius: 14px; }
+    .model-item b { display: block; margin-bottom: 3px; font-size: 14px; }
+    .model-item span { color: var(--muted); font-size: 13px; }
+
+    .panel {
+      margin-top: 34px;
+      padding: 30px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      box-shadow: var(--shadow);
+    }
+    .section-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 26px; }
+    .section-head h2 { margin: 0 0 5px; font-size: 27px; letter-spacing: -.025em; }
+    .section-head p { max-width: 760px; margin: 0; color: var(--muted); }
+
+    .trace-controls { display: flex; flex-wrap: wrap; gap: 8px; }
+    .trace-button {
+      padding: 8px 12px;
+      color: var(--muted);
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 800;
+    }
+    .trace-button:hover, .trace-button.active { color: #fff; background: var(--navy); border-color: var(--navy); }
+
+    .architecture-map { overflow-x: auto; padding: 8px 2px 4px; }
+    .main-flow {
+      display: grid;
+      grid-template-columns: minmax(180px, .9fr) 48px minmax(200px, 1fr) 48px minmax(240px, 1.15fr) 48px minmax(230px, 1.1fr) 48px minmax(190px, .9fr);
+      align-items: stretch;
+      min-width: 1180px;
+    }
+    .flow-arrow { display: grid; place-items: center; color: #8290a8; font-size: 30px; font-weight: 300; }
+    .node {
+      position: relative;
+      min-height: 172px;
+      padding: 20px;
+      border: 1px solid var(--line);
+      border-top: 5px solid var(--blue);
+      border-radius: 15px;
+      background: #fff;
+      transition: opacity .2s, transform .2s, filter .2s;
+    }
+    .node:hover { transform: translateY(-3px); }
+    .node.muted { opacity: .22; filter: grayscale(.85); }
+    .node .number {
+      display: inline-grid;
+      place-items: center;
+      width: 28px;
+      height: 28px;
+      margin-bottom: 14px;
+      color: #fff;
+      background: var(--navy);
+      border-radius: 9px;
+      font-size: 12px;
+      font-weight: 900;
+    }
+    .node h3 { margin: 0 0 6px; font-size: 18px; }
+    .node p { margin: 0; color: var(--muted); font-size: 14px; }
+    .node .tech { display: inline-block; margin-top: 12px; padding: 4px 8px; border-radius: 7px; background: #edf2f8; color: #455169; font-size: 11px; font-weight: 900; }
+    .node.input { border-top-color: var(--orange); background: var(--orange-soft); }
+    .node.cli { border-top-color: var(--violet); background: var(--violet-soft); }
+    .node.engine { border-top-color: var(--blue); background: var(--blue-soft); }
+    .node.store { border-top-color: var(--green); background: var(--green-soft); }
+    .node.output { border-top-color: var(--navy); background: #eef3f8; }
+
+    .subsystems {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+      margin-top: 18px;
+    }
+    .subsystem {
+      padding: 18px 20px;
+      border: 1px dashed #aeb9ca;
+      border-radius: 14px;
+      background: #fafbfe;
+      transition: opacity .2s, filter .2s;
+    }
+    .subsystem.muted { opacity: .22; filter: grayscale(.85); }
+    .subsystem h3 { margin: 0 0 5px; font-size: 16px; }
+    .subsystem p { margin: 0; color: var(--muted); font-size: 13px; }
+
+    .truth-strip {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 16px;
+      align-items: center;
+      margin-top: 18px;
+      padding: 16px 18px;
+      color: #fff;
+      background: var(--navy);
+      border-radius: 13px;
+    }
+    .truth-strip b { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; }
+    .truth-strip span { color: #dbe7f4; font-size: 14px; }
+
+    .lane-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+    .lane { padding: 24px; border: 1px solid var(--line); border-radius: 16px; background: #fbfcff; }
+    .lane.manual { border-top: 5px solid var(--violet); }
+    .lane.ai { border-top: 5px solid var(--blue); }
+    .lane-label { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .lane h3 { margin: 0; font-size: 20px; }
+    .badge { padding: 5px 9px; border-radius: 999px; font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .06em; }
+    .badge.deterministic { color: #5736b3; background: var(--violet-soft); }
+    .badge.assisted { color: #0f59bf; background: var(--blue-soft); }
+
+    .mini-flow { display: grid; grid-template-columns: 1fr; gap: 7px; margin-top: 20px; }
+    .mini-step { display: grid; grid-template-columns: 28px 1fr; gap: 10px; align-items: start; padding: 12px; background: #fff; border: 1px solid #e0e5ee; border-radius: 10px; }
+    .mini-step .dot { display: grid; place-items: center; width: 26px; height: 26px; color: #fff; background: var(--navy); border-radius: 50%; font-size: 11px; font-weight: 900; }
+    .mini-step b { display: block; font-size: 14px; }
+    .mini-step span { display: block; margin-top: 2px; color: var(--muted); font-size: 13px; }
+    .mini-arrow { height: 11px; margin-left: 24px; border-left: 2px solid #c8d0dd; }
+
+    .safety-gate {
+      margin-top: 18px;
+      padding: 24px;
+      color: #54222a;
+      background: var(--red-soft);
+      border: 1px solid #f0bcc5;
+      border-radius: 16px;
+    }
+    .safety-gate h3 { margin: 0 0 8px; font-size: 18px; }
+    .gate-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 14px; }
+    .gate-check { padding: 11px 12px; background: rgba(255,255,255,.72); border-radius: 9px; font-size: 13px; font-weight: 700; }
+
+    .command-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+    .command-card { padding: 20px; border: 1px solid var(--line); border-radius: 14px; background: #fff; }
+    .command-card code { display: inline-block; margin-bottom: 10px; padding: 5px 8px; color: #fff; background: var(--navy); border-radius: 7px; font-weight: 800; }
+    .command-card h3 { margin: 0 0 6px; font-size: 16px; }
+    .command-card p { margin: 0; color: var(--muted); font-size: 13px; }
+    .command-card .result { display: block; margin-top: 12px; padding-top: 10px; border-top: 1px solid #e4e8ef; color: var(--green); font-size: 12px; font-weight: 900; }
+
+    .tech-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 13px; }
+    .tech-card { padding: 18px; border: 1px solid var(--line); border-radius: 14px; background: #fff; }
+    .tech-card .tech-name { margin: 0 0 5px; font-size: 16px; font-weight: 900; }
+    .tech-card p { margin: 0; color: var(--muted); font-size: 13px; }
+    .tech-card small { display: block; margin-top: 10px; color: var(--blue); font-weight: 800; }
+
+    .boundary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+    .boundary { padding: 19px; border-radius: 14px; }
+    .boundary h3 { margin: 0 0 6px; font-size: 16px; }
+    .boundary p { margin: 0; font-size: 13px; }
+    .boundary.green { color: #0f5b40; background: var(--green-soft); }
+    .boundary.orange { color: #7f3d05; background: var(--orange-soft); }
+    .boundary.blue { color: #174d91; background: var(--blue-soft); }
+
+    .footer { display: flex; justify-content: space-between; gap: 20px; margin-top: 26px; padding: 0 4px; color: var(--muted); font-size: 13px; }
+    .footer a { color: var(--blue); font-weight: 800; }
+
+    @media (max-width: 1050px) {
+      .hero { grid-template-columns: 1fr; }
+      .mental-model, .tech-grid { grid-template-columns: repeat(2, 1fr); }
+      .lane-grid { grid-template-columns: 1fr; }
+      .gate-grid, .command-grid { grid-template-columns: repeat(2, 1fr); }
+      .boundary-grid { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 680px) {
+      .topbar { padding: 0 16px; }
+      .topnav a:first-child { display: none; }
+      main { width: min(100% - 24px, 1500px); padding-top: 34px; }
+      h1 { font-size: 42px; }
+      .panel { padding: 20px; border-radius: 17px; }
+      .section-head { align-items: flex-start; flex-direction: column; }
+      .mental-model, .subsystems, .gate-grid, .command-grid, .tech-grid { grid-template-columns: 1fr; }
+      .footer { flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark">ADR</span><span>decinav system map</span></div>
+    <nav class="topnav" aria-label="Page navigation">
+      <a href="#commands">Commands</a>
+      <a href="#technology">Technology</a>
+      <a href="../README.md">Project README</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div>
+        <p class="eyebrow">Architecture explained in plain English</p>
+        <h1>How <code>decinav</code> turns decisions into dependable project data</h1>
+        <p class="lead">The tool keeps Architecture Decision Records as strict Markdown files, checks their relationships like a data graph, and derives a Mermaid view that people and CI can trust.</p>
+      </div>
+      <aside class="hero-note">
+        <strong>The shortest useful mental model</strong>
+        <p>Humans or a local AI propose ADR text. The AI also produces read-only analysis. Deterministic Python validates repository writes and every machine-readable AI result.</p>
+      </aside>
+    </section>
+
+    <div class="mental-model" aria-label="Core principles">
+      <div class="model-item"><b>Markdown is the source</b><span>Each ADR is readable by people and machines.</span></div>
+      <div class="model-item"><b>Relationships are data</b><span>Dependencies and supersessions carry reasons.</span></div>
+      <div class="model-item"><b>AI output is untrusted</b><span>Proposals and analysis cannot bypass deterministic checks.</span></div>
+      <div class="model-item"><b>The graph is derived</b><span>README Mermaid can always be regenerated.</span></div>
+    </div>
+
+    <section class="panel" id="overview">
+      <div class="section-head">
+        <div>
+          <h2>The whole system at a glance</h2>
+          <p>Creation paths converge on the strict ADR repository; read-only intelligence paths use that repository as evidence.</p>
+        </div>
+        <div class="trace-controls" aria-label="Highlight a workflow">
+          <button class="trace-button active" type="button" data-trace="all">Show all</button>
+          <button class="trace-button" type="button" data-trace="manual">Manual ADR</button>
+          <button class="trace-button" type="button" data-trace="ai">AI-assisted</button>
+          <button class="trace-button" type="button" data-trace="commit">Commit policy</button>
+        </div>
+      </div>
+
+      <div class="architecture-map">
+        <div class="main-flow">
+          <article class="node input" data-paths="manual ai commit">
+            <span class="number">1</span>
+            <h3>Project inputs</h3>
+            <p>Titles, informal documents, structural project files, PRDs, questions, staged Git changes.</p>
+            <span class="tech">filesystem + Git</span>
+          </article>
+          <div class="flow-arrow" aria-hidden="true">→</div>
+          <article class="node cli" data-paths="manual ai commit">
+            <span class="number">2</span>
+            <h3>Command interface</h3>
+            <p><code>init</code>, <code>new</code>, <code>graph</code>, <code>validate</code>, <code>baseline</code>, <code>ingest</code>, <code>impact</code>, <code>query</code>, <code>ui</code>.</p>
+            <span class="tech">Typer CLI</span>
+          </article>
+          <div class="flow-arrow" aria-hidden="true">→</div>
+          <article class="node engine" data-paths="manual ai">
+            <span class="number">3</span>
+            <h3>Deterministic core</h3>
+            <p>Parses strict YAML, analyzes the complete causal graph, rejects unsafe or inconsistent state.</p>
+            <span class="tech">Python + PyYAML</span>
+          </article>
+          <div class="flow-arrow" aria-hidden="true">→</div>
+          <article class="node store" data-paths="manual ai">
+            <span class="number">4</span>
+            <h3>ADR repository</h3>
+            <p><code>docs/adr/*.md</code> holds versioned decisions, reasoned links, status, date, and domain.</p>
+            <span class="tech">Markdown + YAML V2</span>
+          </article>
+          <div class="flow-arrow" aria-hidden="true">→</div>
+          <article class="node output" data-paths="manual ai commit">
+            <span class="number">5</span>
+            <h3>Useful outputs</h3>
+            <p>Mermaid graphs, strict CI validation, Git guidance, PRD impact reports, and cited architecture answers.</p>
+            <span class="tech">Mermaid + POSIX hook</span>
+          </article>
+        </div>
+
+        <div class="subsystems">
+          <article class="subsystem" data-paths="ai">
+            <h3>Safe source bundler</h3>
+            <p>Selects only supported inputs; excludes source code, secrets, dependencies, lockfiles and oversized files for baseline discovery.</p>
+          </article>
+          <article class="subsystem" data-paths="ai">
+            <h3>Local AI process boundary</h3>
+            <p>Runs the configured CLI without a shell. Prompt travels by argument, temporary file, or stdin; no REST API is built into decinav.</p>
+          </article>
+          <article class="subsystem" data-paths="ai">
+            <h3>Minimized intelligence context</h3>
+            <p><code>impact</code> and <code>query</code> send only validated frontmatter plus Context and Decision blocks; returned ADR references are checked before display.</p>
+          </article>
+          <article class="subsystem" data-paths="commit">
+            <h3>Git commit-msg policy</h3>
+            <p>When staged <code>src/</code> or <code>infra/</code> changes exist, require <code>[ADR-XXXX]</code> or <code>[skip-adr]</code>; warn-only mode supports brownfield adoption.</p>
+          </article>
+        </div>
+      </div>
+
+      <div class="truth-strip">
+        <b>Trust boundary</b>
+        <span>Local AI stdout is untrusted input. Writes require full prospective graph validation; read-only intelligence rejects malformed schemas and unknown ADR references.</span>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <div>
+          <h2>Two ways an ADR enters the system</h2>
+          <p>The origin differs, but the schema and repository rules do not.</p>
+        </div>
+      </div>
+
+      <div class="lane-grid">
+        <article class="lane manual">
+          <div class="lane-label"><h3>Human-created decision</h3><span class="badge deterministic">Deterministic</span></div>
+          <div class="mini-flow">
+            <div class="mini-step"><span class="dot">1</span><div><b><code>decinav new "Title" --domain ...</code></b><span>The CLI asks for a non-empty reason for every relationship.</span></div></div>
+            <div class="mini-arrow" aria-hidden="true"></div>
+            <div class="mini-step"><span class="dot">2</span><div><b>Allocate the next ID</b><span>Valid metadata and reserved filename prefixes prevent accidental reuse.</span></div></div>
+            <div class="mini-arrow" aria-hidden="true"></div>
+            <div class="mini-step"><span class="dot">3</span><div><b>Render and parse V2 before writing</b><span>The generated file is checked against the same strict parser used later by CI.</span></div></div>
+            <div class="mini-arrow" aria-hidden="true"></div>
+            <div class="mini-step"><span class="dot">4</span><div><b>Create without overwrite, then open editor</b><span>Exclusive file creation protects any existing ADR.</span></div></div>
+          </div>
+        </article>
+
+        <article class="lane ai">
+          <div class="lane-label"><h3>AI-proposed decision batch</h3><span class="badge assisted">AI-assisted</span></div>
+          <div class="mini-flow">
+            <div class="mini-step"><span class="dot">1</span><div><b><code>baseline</code> or <code>ingest</code></b><span>Build a deterministic, UTF-8, size-bounded source bundle.</span></div></div>
+            <div class="mini-arrow" aria-hidden="true"></div>
+            <div class="mini-step"><span class="dot">2</span><div><b>Call a configured local AI CLI</b><span><code>DECINAV_AI_CMD</code> is parsed with <code>shlex</code> and executed without a shell.</span></div></div>
+            <div class="mini-arrow" aria-hidden="true"></div>
+            <div class="mini-step"><span class="dot">3</span><div><b>Demand one exact JSON envelope</b><span>No prose, duplicate keys, unsafe filenames, empty records, or extra fields.</span></div></div>
+            <div class="mini-arrow" aria-hidden="true"></div>
+            <div class="mini-step"><span class="dot">4</span><div><b>Validate first; publish as a batch second</b><span>Files are staged, fsynced, hard-linked without overwrite, and rolled back if publication fails.</span></div></div>
+          </div>
+        </article>
+      </div>
+
+      <div class="safety-gate">
+        <h3>The shared safety gate</h3>
+        <p>No AI or manual shortcut can weaken these repository invariants.</p>
+        <div class="gate-grid">
+          <div class="gate-check">✓ Exact V1/V2 frontmatter fields</div>
+          <div class="gate-check">✓ Unique IDs and matching filenames</div>
+          <div class="gate-check">✓ Existing relationship targets</div>
+          <div class="gate-check">✓ No causal relationship cycles</div>
+          <div class="gate-check">✓ V2 links include a reason</div>
+          <div class="gate-check">✓ Contiguous generated IDs</div>
+          <div class="gate-check">✓ No file overwrite</div>
+          <div class="gate-check">✓ Full future graph checked pre-write</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" id="commands">
+      <div class="section-head">
+        <div>
+          <h2>What each command actually does</h2>
+          <p>Inputs on top, concrete state changes on the bottom.</p>
+        </div>
+      </div>
+      <div class="command-grid">
+        <article class="command-card"><code>init</code><h3>Prepare a Git project</h3><p>Creates <code>docs/adr/README.md</code> and installs a strict or warning-only commit-message hook without silently replacing foreign hooks.</p><span class="result">OUTPUT → directory + local Git policy</span></article>
+        <article class="command-card"><code>new</code><h3>Create one proposed ADR</h3><p>Allocates a deterministic ID, records relationship reasons, writes a strict V2 template, and opens <code>$EDITOR</code>.</p><span class="result">OUTPUT → one new Markdown ADR</span></article>
+        <article class="command-card"><code>graph</code><h3>Derive a human view</h3><p>Analyzes all readable ADRs and updates the managed Mermaid block globally, around a focus ADR, or for one domain.</p><span class="result">OUTPUT → README Mermaid graph</span></article>
+        <article class="command-card"><code>validate</code><h3>Act as the CI gate</h3><p>Aggregates schema, filename, duplicate-ID, dangling-link and cycle failures; exits with status 1 if any exist.</p><span class="result">OUTPUT → pass/fail + all issues</span></article>
+        <article class="command-card"><code>baseline</code><h3>Create the one Day 0 ADR</h3><p>Reads only safe structural context, asks a local AI for exactly <code>ADR-0001</code>, validates it, writes it, then regenerates the graph.</p><span class="result">OUTPUT → validated baseline + graph</span></article>
+        <article class="command-card"><code>ingest</code><h3>Extract atomic past decisions</h3><p>Bundles supported informal documents, provides the existing graph to the local AI, validates a contiguous batch, publishes it, then regenerates.</p><span class="result">OUTPUT → validated ADR batch + graph</span></article>
+        <article class="command-card"><code>impact</code><h3>Estimate PRD blast radius</h3><p>Compares a proposed PRD with minimized ADR evidence, validates every referenced ID, and optionally emits a red, blue, and green Mermaid visual diff.</p><span class="result">OUTPUT → read-only Markdown impact report</span></article>
+        <article class="command-card"><code>query</code><h3>Ask the architecture</h3><p>Uses the same minimized evidence and requires inline <code>[ADR-XXXX]</code> citations for traceable semantic answers.</p><span class="result">OUTPUT → cited Markdown answer</span></article>
+        <article class="command-card"><code>ui</code><h3>Use the browser workbench</h3><p>Hosts a token-protected loopback UI over the same onboarding, validation, impact, and query workflows with an offline SVG graph.</p><span class="result">OUTPUT → local interactive workbench</span></article>
+      </div>
+    </section>
+
+    <section class="panel" id="technology">
+      <div class="section-head">
+        <div>
+          <h2>Technology inside the tool</h2>
+          <p>Each dependency has a narrow job; the safety-critical behavior stays explicit in application code.</p>
+        </div>
+      </div>
+      <div class="tech-grid">
+        <article class="tech-card"><p class="tech-name">Python 3.11+</p><p>Core runtime, filesystem handling, subprocess control, dataclasses, temporary staging, and atomic operations.</p><small>Application language</small></article>
+        <article class="tech-card"><p class="tech-name">Typer</p><p>Defines commands, arguments, options, prompts, help output, colors, and exit codes.</p><small>CLI interface</small></article>
+        <article class="tech-card"><p class="tech-name">PyYAML SafeLoader</p><p>Reads YAML without constructing arbitrary Python objects; decinav adds duplicate-key and exact-field checks.</p><small>Strict frontmatter parsing</small></article>
+        <article class="tech-card"><p class="tech-name">Markdown + YAML</p><p>Keeps decisions reviewable in Git while exposing typed metadata to the program.</p><small>Durable data format</small></article>
+        <article class="tech-card"><p class="tech-name">Mermaid</p><p>Turns the validated causal relationships into a clickable, domain-colored flowchart embedded in README.</p><small>Derived visualization</small></article>
+        <article class="tech-card"><p class="tech-name">Git + POSIX shell</p><p>Discovers the real worktree and installs a dependency-free <code>commit-msg</code> policy in Git's effective hooks directory.</p><small>Workflow enforcement</small></article>
+        <article class="tech-card"><p class="tech-name">Local AI CLI adapter</p><p>Runs Codex, Claude, Sol, or another configured process through argument, prompt-file, or stdin transport—never through a shell.</p><small>Semantic extraction and analysis boundary</small></article>
+        <article class="tech-card"><p class="tech-name">Python HTTP server + SVG</p><p>Hosts the loopback-only browser UI, authenticates local JSON actions with a random token, and renders decision graphs without an online dependency.</p><small>CLI-free local workbench</small></article>
+        <article class="tech-card"><p class="tech-name">pytest + Hatchling</p><p>The test suite proves behavior; Hatchling packages the <code>src/</code> layout and exposes the <code>decinav</code> executable.</p><small>Verification + packaging</small></article>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <div>
+          <h2>Where truth lives</h2>
+          <p>This distinction is what keeps the design understandable when a step fails.</p>
+        </div>
+      </div>
+      <div class="boundary-grid">
+        <article class="boundary green"><h3>Source of truth: ADR Markdown</h3><p>The decision text and V2 metadata in <code>docs/adr/*.md</code> are durable project state.</p></article>
+        <article class="boundary blue"><h3>Derived state: README graph</h3><p>The Mermaid block is a view over ADR relationships. If it is stale or deleted, <code>decinav graph</code> rebuilds it.</p></article>
+        <article class="boundary orange"><h3>Untrusted proposal: AI stdout</h3><p>AI output is never accepted because it sounds plausible. Deterministic code must prove its envelope, schema, IDs, links, and graph are valid.</p></article>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <span>Diagram based on <code>decinav 0.7.0</code> implementation and its automated test suite.</span>
+      <span><a href="../README.md">Read usage documentation</a> · <a href="#overview">Back to diagram</a></span>
+    </footer>
+  </main>
+
+  <script>
+    const buttons = [...document.querySelectorAll('.trace-button')];
+    const traceable = [...document.querySelectorAll('[data-paths]')];
+
+    for (const button of buttons) {
+      button.addEventListener('click', () => {
+        const trace = button.dataset.trace;
+        for (const candidate of buttons) candidate.classList.toggle('active', candidate === button);
+        for (const node of traceable) {
+          const paths = node.dataset.paths.split(' ');
+          node.classList.toggle('muted', trace !== 'all' && !paths.includes(trace));
+        }
+      });
+    }
+  </script>
+</body>
+</html>

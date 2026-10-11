@@ -1,0 +1,20 @@
+{
+  "directly_affected_adrs": [
+    {
+      "id": "ADR-0002",
+      "reason_for_change": "The PRD changes the API execution boundary established by this decision."
+    }
+  ],
+  "prerequisite_adrs": [
+    {
+      "id": "ADR-0001",
+      "reason_required": "The feature depends on the recorded system baseline and service boundary."
+    }
+  ],
+  "architectural_risks": [
+    "Synchronous PRD behavior conflicts with the existing asynchronous processing rule."
+  ],
+  "proposed_new_adrs": [
+    "Define the feature evaluation delivery contract"
+  ]
+}

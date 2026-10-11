@@ -1,0 +1,20 @@
+{
+  "name": "decinav",
+  "displayName": "Decinav",
+  "version": "0.8.0",
+  "description": "Skills that drive decinav: plan a feature against recorded decisions, propose new ADRs through the validation gate, review them, and answer architecture questions with checked citations.",
+  "author": {
+    "name": "OneStop Engineering",
+    "url": "https://github.com/onestopengineering"
+  },
+  "license": "MIT",
+  "keywords": [
+    "adr",
+    "architecture",
+    "decision-records",
+    "knowledge-graph",
+    "prd"
+  ],
+  "homepage": "https://github.com/onestopengineering/decinav",
+  "repository": "https://github.com/onestopengineering/decinav"
+}

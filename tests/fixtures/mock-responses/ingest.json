@@ -1,0 +1,12 @@
+{
+  "records": [
+    {
+      "filename": "0002-use-scheduled-import-polling.md",
+      "content": "---\nschema_version: 2\nid: \"ADR-0002\"\ntitle: \"Use scheduled polling for catalog imports\"\nstatus: \"proposed\"\ndate: \"2026-08-27\"\ndomain: \"backend\"\ndepends_on: [{\"id\": \"ADR-0001\", \"reason\": \"The polling decision extends the recorded legacy-system baseline.\"}]\nsupersedes: []\n---\n\n# Use scheduled polling for catalog imports\n\n## Context\n\nThe original integration partner published one nightly catalog export.\n\n## Decision\n\nProcess imports with a scheduled polling job.\n\n## Consequences\n\nThe design is simple for nightly delivery but delays updates and repeatedly scans unchanged rows.\n\n## Sources\n\n- import-processing.md\n"
+    },
+    {
+      "filename": "0003-adopt-event-driven-imports.md",
+      "content": "---\nschema_version: 2\nid: \"ADR-0003\"\ntitle: \"Adopt event-driven catalog imports\"\nstatus: \"proposed\"\ndate: \"2026-08-27\"\ndomain: \"backend\"\ndepends_on: [{\"id\": \"ADR-0001\", \"reason\": \"The event-driven design changes the import flow within the baseline system.\"}]\nsupersedes: [{\"id\": \"ADR-0002\", \"reason\": \"Events remove the latency and repeated scans caused by scheduled polling.\"}]\n---\n\n# Adopt event-driven catalog imports\n\n## Context\n\nPolling delays inventory changes and repeatedly scans unchanged rows.\n\n## Decision\n\nReplace scheduled polling with event-driven import workers while retaining PostgreSQL as the system of record.\n\n## Consequences\n\nThe system needs retry visibility and explicit handling for failed import events.\n\n## Sources\n\n- import-processing.md\n- operational-notes.txt\n"
+    }
+  ]
+}

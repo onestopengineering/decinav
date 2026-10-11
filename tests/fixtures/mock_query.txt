@@ -1,0 +1,1 @@
+Evaluation is separated from the API request boundary [ADR-0002], while the system baseline defines the services that participate in that flow [ADR-0001].

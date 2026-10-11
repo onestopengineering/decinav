@@ -1,0 +1,14 @@
+{
+  "name": "decinav",
+  "description": "Architecture decision records as a validated graph your coding agent consults before changing the system.",
+  "owner": {
+    "name": "OneStop Engineering"
+  },
+  "plugins": [
+    {
+      "name": "decinav",
+      "source": "./decinav-plugin",
+      "description": "Plan features, record decisions, and answer architecture questions through decinav's validated ADR graph."
+    }
+  ]
+}
