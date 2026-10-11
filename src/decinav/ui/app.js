@@ -146,7 +146,11 @@
     }
     const response = await fetch(url, options);
     const data = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
-    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    if (!response.ok) {
+      const error = new Error(data.error || `HTTP ${response.status}`);
+      error.data = data;
+      throw error;
+    }
     return data;
   }
 
@@ -831,36 +835,20 @@
     $('#stat-fresh').className = `stat-value small ${counts['sources-changed'] ? 'bad' : counts.unknown === status.adr_count && status.adr_count ? 'warn' : 'good'}`;
 
     const modelReady = Boolean(status.ai_configured);
-    const modelInfo = status.model || {};
-    const description = $('#model-description');
-    if (description) description.textContent = modelInfo.description || (modelReady ? 'configured' : 'not configured');
-    const notice = $('#ai-notice');
-    if (notice) notice.classList.toggle('ok', modelReady);
-    const select = $('#model-provider');
-    if (select) {
-      const available = new Set(modelInfo.available || []);
-      [...select.options].forEach(option => {
-        if (option.value === 'none') return;
-        option.disabled = !available.has(option.value);
-        option.textContent = option.textContent.replace(/ — not found on PATH$/, '') + (available.has(option.value) ? '' : ' — not found on PATH');
-      });
-      if (modelInfo.provider && [...select.options].some(option => option.value === modelInfo.provider)) select.value = modelInfo.provider;
-      else if (available.size) select.value = [...available][0];
-      else select.value = 'none';
-    }
+    renderModelPanel(status);
     const baselineButton = $('[data-action="baseline"]');
     if (baselineButton) {
       const lock = status.adr_count > 0 || !modelReady;
       baselineButton.dataset.locked = lock ? 'true' : 'false';
       baselineButton.disabled = lock;
-      baselineButton.title = !modelReady ? 'Set DECINAV_AI_CMD before starting the server' : status.adr_count > 0 ? 'Baseline already exists' : '';
+      baselineButton.title = !modelReady ? 'Choose a model in Setup first' : status.adr_count > 0 ? 'Baseline already exists' : '';
     }
     ['[data-action="ingest"]', '#run-impact', '#run-query'].forEach(selector => {
       const button = $(selector);
       if (!button) return;
       button.dataset.locked = modelReady ? 'false' : 'true';
       button.disabled = !modelReady;
-      button.title = modelReady ? '' : 'Set DECINAV_AI_CMD before starting the server; see Setup & validate';
+      button.title = modelReady ? '' : 'Choose a model in Setup first';
     });
     const loadLast = $('#load-last-impact');
     loadLast.disabled = !status.last_impact_available;
@@ -991,19 +979,139 @@
     toast('Loaded the last saved impact result.');
   }).catch(() => {}));
 
+  // Answers put one claim with its citation on each line; keep them on separate lines.
+  function oneClaimPerLine(text) { return String(text || '').replace(/([^\n])\n(?=[^\n])/g, '$1\n\n'); }
+
   $('#run-query').addEventListener('click', event => withBusy(event.currentTarget, async () => {
-    const data = await api('query', { question: $('#question').value });
-    $('#query-answer').innerHTML = renderMarkdown(data.answer);
-    $('#query-results').classList.add('visible');
-    toast(data.message);
+    try {
+      const data = await api('query', { question: $('#question').value });
+      $('#query-answer').innerHTML = renderMarkdown(oneClaimPerLine(data.answer));
+      $('#query-results').classList.add('visible');
+      toast(data.message);
+    } catch (error) {
+      const draft = error.data && error.data.rejected_answer;
+      if (draft) {
+        const attempts = error.data.attempts ? ` after ${error.data.attempts} attempts` : '';
+        $('#query-answer').innerHTML =
+          `<div class="issue"><strong>No validated answer${escapeHTML(attempts)}.</strong> ${escapeHTML(error.message)}. ` +
+          'The draft below failed the citation check, so do not rely on it. Asking again usually works.</div>' +
+          `<details class="rejected-draft"><summary>Rejected draft, not validated</summary><div class="md">${renderMarkdown(oneClaimPerLine(draft))}</div></details>`;
+        $('#query-results').classList.add('visible');
+      }
+      throw error;
+    }
   }).catch(() => {}));
   $('#question').addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); $('#run-query').click(); } });
   $$('.sample-question').forEach(button => button.addEventListener('click', () => { $('#question').value = button.dataset.question; $('#question').focus(); }));
 
-  $('#save-model')?.addEventListener('click', event => withBusy(event.currentTarget, async () => {
-    const data = await api('setup', { provider: $('#model-provider').value });
+  // ----- model chooser -----------------------------------------------------
+  const PROVIDERS_WITH_MODEL = ['claude', 'codex'];
+
+  function selectedProvider() {
+    const radio = $('input[name="model-provider"]:checked');
+    return radio ? radio.value : 'none';
+  }
+
+  function modelPayload() {
+    const provider = selectedProvider();
+    return {
+      provider,
+      model: PROVIDERS_WITH_MODEL.includes(provider) ? $('#model-name').value.trim() : '',
+      command: provider === 'command' ? $('#model-command').value.trim() : '',
+    };
+  }
+
+  function syncModelFields() {
+    const provider = selectedProvider();
+    const info = (state.status && state.status.model) || {};
+    $('#model-name-field').hidden = !PROVIDERS_WITH_MODEL.includes(provider);
+    $('#model-command-field').hidden = provider !== 'command';
+    $$('.provider-option').forEach(option => option.classList.toggle('selected', option.dataset.provider === provider));
+    const current = $('#model-name').value.trim();
+    const suggestions = ((info.suggestions || {})[provider]) || [];
+    $('#model-suggestions').replaceChildren(...suggestions.map(name => {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'model-chip';
+      chip.textContent = name;
+      chip.setAttribute('aria-pressed', String(current === name));
+      chip.addEventListener('click', () => { $('#model-name').value = name; state.modelDirty = true; clearModelResult(); syncModelFields(); });
+      return chip;
+    }));
+    $('#model-name-hint').textContent = provider === 'codex'
+      ? 'Passed to codex as -m. Leave empty for the model in your Codex config.'
+      : "Passed to claude as --model: an alias such as sonnet, or a full model ID. Leave empty for the CLI's own default.";
+    const needsCommand = provider === 'command' && !$('#model-command').value.trim();
+    $('#save-model').disabled = needsCommand;
+    $('#test-model').disabled = provider === 'none' || needsCommand;
+  }
+
+  function clearModelResult() {
+    const out = $('#model-test-result');
+    out.textContent = '';
+    out.className = 'model-test-result';
+  }
+
+  function renderModelPanel(status) {
+    const info = status.model || {};
+    const ready = Boolean(status.ai_configured);
+    const current = $('#model-description');
+    current.textContent = info.description || 'not configured';
+    current.className = `model-current ${ready ? 'ok' : 'warn'}`;
+    const available = new Set(info.available || []);
+    PROVIDERS_WITH_MODEL.forEach(name => {
+      const option = $(`.provider-option[data-provider="${name}"]`);
+      const found = available.has(name);
+      option.querySelector('input').disabled = !found;
+      option.classList.toggle('unavailable', !found);
+      option.querySelector('.po-state').textContent = found ? 'installed' : 'not found on PATH';
+    });
+    if (!state.modelDirty) {
+      let target = info.provider;
+      if (!['claude', 'codex', 'command', 'none'].includes(target)) target = available.size ? [...available][0] : 'none';
+      const radio = $(`input[name="model-provider"][value="${target}"]`);
+      (radio && !radio.disabled ? radio : $('input[name="model-provider"][value="none"]')).checked = true;
+      $('#model-name').value = info.model || '';
+      $('#model-command').value = info.command || '';
+      clearModelResult();
+    }
+    if (info.provider === 'env') $('#model-test-result').textContent = 'DECINAV_AI_CMD is set for this server and overrides the saved choice.';
+    syncModelFields();
+  }
+
+  $$('input[name="model-provider"]').forEach(radio => radio.addEventListener('change', () => {
+    state.modelDirty = true;
+    const saved = state.status && state.status.model;
+    $('#model-name').value = saved && saved.provider === radio.value ? (saved.model || '') : '';
+    clearModelResult();
+    syncModelFields();
+  }));
+  ['#model-name', '#model-command'].forEach(selector => $(selector).addEventListener('input', () => {
+    state.modelDirty = true;
+    clearModelResult();
+    syncModelFields();
+  }));
+
+  $('#save-model').addEventListener('click', event => withBusy(event.currentTarget, async () => {
+    const data = await api('setup', modelPayload());
+    state.modelDirty = false;
     renderStatus(data.status);
     toast(data.message);
+  }).catch(() => {}));
+
+  $('#test-model').addEventListener('click', event => withBusy(event.currentTarget, async () => {
+    const out = $('#model-test-result');
+    out.className = 'model-test-result';
+    out.textContent = 'Sending one short prompt…';
+    try {
+      const data = await api('test_model', modelPayload());
+      out.textContent = data.ok ? `Works · replied in ${data.seconds} s` : `Replied in ${data.seconds} s, but not with OK: ${data.reply}`;
+      out.classList.add(data.ok ? 'ok' : 'warn');
+    } catch (error) {
+      out.textContent = error.message;
+      out.classList.add('bad');
+      throw error;
+    }
   }).catch(() => {}));
 
   $$('[data-action]').forEach(button => button.addEventListener('click', event => withBusy(event.currentTarget, async () => {

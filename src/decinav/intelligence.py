@@ -35,7 +35,9 @@ MAX_PRD_BYTES = 1024 * 1024
 MAX_QUESTION_CHARACTERS = 16 * 1024
 LAST_IMPACT_FILENAME = "last-impact.json"
 QUERY_MAX_ATTEMPTS = 2
+IMPACT_MAX_ATTEMPTS = 2
 CLAIM_STATES = ("DOCUMENTED", "VERIFIED_IN_CODE", "CONTRADICTED", "UNKNOWN")
+_BOLD_LINE_PATTERN = re.compile(r"^(\*\*|__)(?P<text>[^*_].*?)\1:?$")
 _CLAIM_STATE_PATTERN = re.compile(r"\[(DOCUMENTED|VERIFIED_IN_CODE|CONTRADICTED|UNKNOWN)\]")
 _SECTION_HEADING_PATTERN = re.compile(
     r"^(?P<marks>#{1,6})[ \t]+(?P<title>[^\r\n#]+?)[ \t]*#*[ \t]*$",
@@ -498,9 +500,18 @@ def _evaluate_impact(
         annotations=freshness_annotations(project_root, repository),
     )
     prompt = build_impact_prompt(adr_context=adr_context, prd_text=prd_text)
-    response = execute_ai(prompt, cwd=project_root, purpose="impact")
     known_ids = frozenset(record.metadata.id for record in repository.unique_records)
-    evaluation = parse_impact_response(response.stdout, known_adr_ids=known_ids)
+    attempt = 0
+    while True:
+        attempt += 1
+        response = execute_ai(prompt, cwd=project_root, purpose="impact")
+        try:
+            evaluation = parse_impact_response(response.stdout, known_adr_ids=known_ids)
+            break
+        except EnvelopeError as exc:
+            if attempt >= IMPACT_MAX_ATTEMPTS:
+                raise EnvelopeError(f"after {attempt} attempt(s), {exc}") from exc
+            prompt = _impact_retry_prompt(prompt, response.stdout, str(exc))
     mermaid = None
     if visual:
         mermaid = generate_impact_mermaid(
@@ -543,14 +554,37 @@ def run_query(project_root: Path, question: str) -> QueryResult:
         except WorkflowError as exc:
             if attempt >= QUERY_MAX_ATTEMPTS:
                 raise UntraceableAnswerError(str(exc), answer, attempt) from exc
-            prompt = _query_retry_prompt(prompt, answer, str(exc))
+            prompt = _query_retry_prompt(prompt, answer, str(exc), _uncited_query_lines(answer))
             continue
         return QueryResult(clean_question, repository, answer, response, attempt)
 
 
-def _query_retry_prompt(original_prompt: str, rejected_answer: str, reason: str) -> str:
-    """One corrective round: the same evidence, the rejected draft, and the rule broken."""
+def _impact_retry_prompt(original_prompt: str, rejected: str, reason: str) -> str:
+    """One corrective round: same evidence, the rejected JSON, and the rule it broke."""
 
+    return (
+        original_prompt
+        + "\nREJECTED JSON START\n"
+        + rejected[:20000]
+        + "\nREJECTED JSON END\n\n"
+        "The JSON above was rejected by a deterministic check: "
+        + reason
+        + ". Return the complete corrected JSON object with exactly the four fields. "
+        "Items in directly_affected_adrs have exactly the keys id and reason_for_change. "
+        "Items in prerequisite_adrs have exactly the keys id and reason_required. "
+        "Return only the JSON.\n"
+    )
+
+
+def _query_retry_prompt(
+    original_prompt: str,
+    rejected_answer: str,
+    reason: str,
+    offending_lines: list[tuple[int, str]] | None = None,
+) -> str:
+    """One corrective round: the evidence, the rejected draft, and the exact lines at fault."""
+
+    quoted = "".join(f"- {text}\n" for _number, text in (offending_lines or [])[:10])
     return (
         original_prompt
         + "\nREJECTED DRAFT START\n"
@@ -558,7 +592,9 @@ def _query_retry_prompt(original_prompt: str, rejected_answer: str, reason: str)
         + "\nREJECTED DRAFT END\n\n"
         "The draft above was rejected by a deterministic check: "
         + reason
-        + ". Rewrite the complete answer so that every non-heading line that states a "
+        + ".\n"
+        + (f"These lines carry neither a citation nor [UNKNOWN]:\n{quoted}" if quoted else "")
+        + "Rewrite the complete answer so that every non-heading line that states a "
         "fact ends with at least one inline citation such as [ADR-0002] to an ADR in "
         "ADR CONTEXT, or ends with [UNKNOWN] when the ADRs do not establish it, with no "
         "preamble and no closing remark. Return only the answer.\n"
@@ -611,7 +647,7 @@ def check_answer(
                 unstated.append(line_number)
             if states != ["UNKNOWN"] and not has_citation:
                 uncited.append(line_number)
-        elif not has_citation:
+        elif not has_citation and states != ["UNKNOWN"]:
             uncited.append(line_number)
 
     if factual_lines == 0:
@@ -635,10 +671,18 @@ def check_answer(
 def _is_short_heading(line: str) -> bool:
     """Structural headings are exempt; a heading long enough to be a claim is not."""
 
-    if not line.startswith("#"):
+    bold = _BOLD_LINE_PATTERN.fullmatch(line)
+    if bold is not None:
+        text = bold.group("text").strip()
+        if text.endswith("."):
+            return False  # "**Not fully.**" is a verdict, not a heading
+    elif line.startswith("#"):
+        text = line.lstrip("#").strip()
+    else:
         return False
-    words = line.lstrip("#").strip().split()
-    return len(words) < 8
+    if text.endswith("?"):
+        return True  # a question heading asks; it never asserts
+    return len(text.split()) < 8
 
 
 def _render_lines(numbers: list[int]) -> str:
@@ -869,17 +913,10 @@ def _required_single_line(value: object, location: str) -> str:
     return value
 
 
-def _validate_query_citations(answer: str, repository: RepositoryAnalysis) -> None:
-    known_ids = {record.metadata.id for record in repository.unique_records}
-    cited_ids = set(_ADR_CITATION_PATTERN.findall(answer))
-    if not cited_ids:
-        raise WorkflowError("AI query answer contains no inline ADR citations")
-    unknown_ids = sorted(cited_ids - known_ids)
-    if unknown_ids:
-        raise WorkflowError(
-            "AI query answer cites unknown ADR IDs: " + ", ".join(unknown_ids)
-        )
-    uncited_lines: list[int] = []
+def _uncited_query_lines(answer: str) -> list[tuple[int, str]]:
+    """Factual lines with neither an ADR citation nor an [UNKNOWN] abstention."""
+
+    offending: list[tuple[int, str]] = []
     inside_code_fence = False
     for line_number, raw_line in enumerate(answer.splitlines(), start=1):
         line = raw_line.strip()
@@ -896,7 +933,21 @@ def _validate_query_citations(answer: str, repository: RepositoryAnalysis) -> No
         ):
             continue
         if not _ADR_CITATION_PATTERN.search(line):
-            uncited_lines.append(line_number)
+            offending.append((line_number, line))
+    return offending
+
+
+def _validate_query_citations(answer: str, repository: RepositoryAnalysis) -> None:
+    known_ids = {record.metadata.id for record in repository.unique_records}
+    cited_ids = set(_ADR_CITATION_PATTERN.findall(answer))
+    if not cited_ids:
+        raise WorkflowError("AI query answer contains no inline ADR citations")
+    unknown_ids = sorted(cited_ids - known_ids)
+    if unknown_ids:
+        raise WorkflowError(
+            "AI query answer cites unknown ADR IDs: " + ", ".join(unknown_ids)
+        )
+    uncited_lines = [number for number, _text in _uncited_query_lines(answer)]
     if uncited_lines:
         rendered = ", ".join(str(number) for number in uncited_lines[:10])
         suffix = "..." if len(uncited_lines) > 10 else ""

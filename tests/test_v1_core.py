@@ -830,33 +830,40 @@ def test_query_retries_once_with_the_rejection_reason_then_surfaces_draft(
 # --- setup and project model config ---------------------------------------------
 
 
-def test_setup_writes_config_and_adapter_uses_it(tmp_path: Path, monkeypatch) -> None:
+def _only_on_path(*names):
+    return lambda name: "/usr/bin/" + name if name in names else None
+
+
+def test_setup_without_flags_off_a_terminal_picks_first_cli_and_keeps_its_default_model(
+    tmp_path: Path, monkeypatch
+) -> None:
     from decinav import ai_adapter
     from decinav.ai_adapter import AIResponse, execute_ai
     from decinav.config import load_config
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("DECINAV_AI_CMD", raising=False)
-    monkeypatch.setattr("decinav.config.shutil.which", lambda name: "/usr/bin/" + name if name == "claude" else None)
+    monkeypatch.setattr("decinav.config.shutil.which", _only_on_path("claude"))
 
     result = runner.invoke(app, ["setup"])
 
     assert result.exit_code == 0, result.output
-    assert "Model: claude (sonnet)" in result.output
+    assert "Chose claude" in result.output and "--provider" in result.output
+    assert "Model: claude · CLI default model" in result.output
     config = load_config(tmp_path)
-    assert config is not None and config.provider == "claude" and config.model == "sonnet"
+    assert config.provider == "claude" and config.model is None
 
     calls: list[tuple[str, str | None]] = []
+    monkeypatch.setattr(ai_adapter, "run_builtin_provider",
+                        lambda provider, prompt, *, model, timeout: calls.append((provider, model)) or AIResponse("ok", "", "builtin"))
+    execute_ai("hello", cwd=tmp_path)
+    assert calls == [("claude", None)]
 
-    def fake_builtin(provider, prompt, *, model, timeout):
-        calls.append((provider, model))
-        assert "hello" in prompt
-        return AIResponse("ok", "", f"builtin-{provider}")
-
-    monkeypatch.setattr(ai_adapter, "run_builtin_provider", fake_builtin)
-    response = execute_ai("hello", cwd=tmp_path)
-    assert response.transport == "builtin-claude"
-    assert calls == [("claude", "sonnet")]
+    explicit = runner.invoke(app, ["setup", "--provider", "claude", "--model", "opus"])
+    assert explicit.exit_code == 0, explicit.output
+    assert load_config(tmp_path).model == "opus"
+    shown = runner.invoke(app, ["setup", "--show"])
+    assert "Model: claude · opus" in shown.output
 
     monkeypatch.setenv("DECINAV_AI_CMD", "mock")
     monkeypatch.setenv("DECINAV_AI_MOCK_RESPONSE", str(tmp_path / "fixture.txt"))
@@ -864,41 +871,97 @@ def test_setup_writes_config_and_adapter_uses_it(tmp_path: Path, monkeypatch) ->
     assert execute_ai("hello", cwd=tmp_path).stdout == "fixture wins"
 
 
-def test_setup_without_any_cli_saves_none_and_commands_explain(tmp_path: Path, monkeypatch) -> None:
+def test_setup_in_a_terminal_asks_for_provider_and_model(tmp_path: Path, monkeypatch) -> None:
+    from decinav.config import load_config
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("decinav.config.shutil.which", _only_on_path("claude", "codex"))
+    monkeypatch.setattr("decinav.cli._stdin_is_interactive", lambda: True)
+
+    result = runner.invoke(app, ["setup"], input="2\ngpt-5-codex\n")
+
+    assert result.exit_code == 0, result.output
+    assert "Claude CLI" in result.output and "Codex CLI" in result.output
+    config = load_config(tmp_path)
+    assert (config.provider, config.model) == ("codex", "gpt-5-codex")
+
+    kept_default = runner.invoke(app, ["setup"], input="1\n\n")
+    assert kept_default.exit_code == 0, kept_default.output
+    assert (load_config(tmp_path).provider, load_config(tmp_path).model) == ("claude", None)
+
+
+def test_setup_rejects_missing_cli_and_unsafe_model_names(tmp_path: Path, monkeypatch) -> None:
     from decinav.ai_adapter import AIAdapterError, execute_ai
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("DECINAV_AI_CMD", raising=False)
-    monkeypatch.setattr("decinav.config.shutil.which", lambda name: None)
+    monkeypatch.setattr("decinav.config.shutil.which", _only_on_path("claude"))
 
-    result = runner.invoke(app, ["setup"])
-    assert result.exit_code == 0, result.output
-    assert "no model CLI" in result.output
+    missing = runner.invoke(app, ["setup", "--provider", "codex"])
+    assert missing.exit_code == 1 and "not found on PATH" in missing.output
+    unsafe = runner.invoke(app, ["setup", "--provider", "claude", "--model", "opus; rm -rf /"])
+    assert unsafe.exit_code == 1 and "invalid model name" in unsafe.output
+
+    monkeypatch.setattr("decinav.config.shutil.which", _only_on_path())
+    none = runner.invoke(app, ["setup"])
+    assert none.exit_code == 0 and "Without a model" in none.output
     with pytest.raises(AIAdapterError, match="decinav setup"):
         execute_ai("hello", cwd=tmp_path)
 
-    explicit = runner.invoke(app, ["setup", "--model", "codex"])
-    assert explicit.exit_code == 1
-    assert "not found on PATH" in explicit.output
+
+def test_builtin_runner_passes_the_chosen_model_or_none(monkeypatch) -> None:
+    from decinav import ai_adapter
+    from decinav.ai_adapter import AIResponse, run_builtin_provider
+
+    commands: list[list[str]] = []
+
+    def fake_run(command, **kwargs):
+        commands.append(command)
+        return AIResponse("OK", "", kwargs["transport"])
+
+    monkeypatch.setattr(ai_adapter, "_run_process", fake_run)
+    run_builtin_provider("claude", "p", model=None, timeout=5)
+    run_builtin_provider("claude", "p", model="opus", timeout=5)
+    run_builtin_provider("codex", "p", model=None, timeout=5)
+    run_builtin_provider("codex", "p", model="gpt-5-codex", timeout=5)
+
+    assert "--model" not in commands[0] and "--tools" in commands[0]
+    assert commands[0][commands[0].index("--setting-sources") + 1] == ""
+    assert commands[1][commands[1].index("--model") + 1] == "opus"
+    assert "-m" not in commands[2] and "read-only" in commands[2]
+    assert commands[3][commands[3].index("-m") + 1] == "gpt-5-codex"
 
 
-def test_ui_setup_action_saves_model_and_status_reports_it(tmp_path: Path, monkeypatch) -> None:
+def test_ui_setup_saves_provider_and_model_and_tests_a_candidate(tmp_path: Path, monkeypatch) -> None:
+    from decinav import ai_adapter
+    from decinav.ai_adapter import AIResponse
+
     setup_architecture_project(tmp_path)
     monkeypatch.delenv("DECINAV_AI_CMD", raising=False)
-    monkeypatch.setattr("decinav.config.shutil.which", lambda name: "/usr/bin/" + name if name == "codex" else None)
+    monkeypatch.setattr("decinav.config.shutil.which", _only_on_path("codex"))
     service = ArchitectureUIService(tmp_path)
 
     before = service.status(str(tmp_path))
     assert before["ai_configured"] is False
     assert before["model"]["available"] == ["codex"]
+    assert before["model"]["suggestions"]["claude"] == ["sonnet", "opus", "fable"]
 
-    saved = service.dispatch("setup", {"project": str(tmp_path), "provider": "codex"})
-    assert "codex" in saved["message"]
-    assert saved["status"]["ai_configured"] is True
+    seen: list[tuple[str, str | None]] = []
+    monkeypatch.setattr(ai_adapter, "run_builtin_provider",
+                        lambda provider, prompt, *, model, timeout: seen.append((provider, model)) or AIResponse("OK", "", "builtin"))
+    tested = service.dispatch("test_model", {"project": str(tmp_path), "provider": "codex", "model": "gpt-5-codex"})
+    assert tested["ok"] is True and seen == [("codex", "gpt-5-codex")]
+    assert service.status(str(tmp_path))["ai_configured"] is False
+
+    saved = service.dispatch("setup", {"project": str(tmp_path), "provider": "codex", "model": "gpt-5-codex"})
+    assert "codex · gpt-5-codex" in saved["message"]
     assert saved["status"]["model"]["provider"] == "codex"
+    assert saved["status"]["model"]["model"] == "gpt-5-codex"
 
     with pytest.raises(UIError):
         service.dispatch("setup", {"project": str(tmp_path), "provider": 7})
+    with pytest.raises(UIError, match="choose Claude CLI"):
+        service.dispatch("test_model", {"project": str(tmp_path), "provider": "none"})
 
 
 def test_init_explains_that_nothing_is_committed(tmp_path: Path, monkeypatch) -> None:
@@ -990,3 +1053,151 @@ def test_init_updates_a_legacy_hook_instead_of_refusing_it(tmp_path: Path, monke
     assert result.exit_code == 0, result.output
     assert "Hook updated" in result.output
     assert "# decinav:managed-commit-msg-hook" in hook.read_text(encoding="utf-8")
+
+
+def test_question_headings_are_not_claims(tmp_path: Path) -> None:
+    """Regression: a real Sonnet answer was rejected for a long question heading."""
+    from decinav.intelligence import _validate_query_citations
+
+    repository = analyze_repository(setup_architecture_project(tmp_path))
+    answer = (
+        "## Can you trust that the code still works this way?\n\n"
+        "Evaluation is asynchronous [ADR-0002].\n"
+        "Whether the worker still retries is not recorded [UNKNOWN]\n"
+    )
+    _validate_query_citations(answer, repository)
+    assert check_answer(answer, repository).ok
+    assert not check_answer(
+        "## The API dispatches evaluation asynchronously through a worker boundary\n", repository
+    ).ok
+
+
+def test_impact_retries_once_with_the_rejection_reason(tmp_path: Path, monkeypatch) -> None:
+    """Regression: a real Sonnet impact run used the wrong item keys and failed outright."""
+    from decinav.ai_adapter import AIResponse
+    from decinav.generation import EnvelopeError
+    from decinav.intelligence import run_impact
+
+    setup_architecture_project(tmp_path)
+    prd = tmp_path / "feature.md"
+    prd.write_text("# Feature\n\nDo something.\n", encoding="utf-8")
+    wrong = json.dumps({"directly_affected_adrs": [{"id": "ADR-0002", "reason": "x"}],
+                        "prerequisite_adrs": [], "architectural_risks": [], "proposed_new_adrs": []})
+    right = (FIXTURES / "mock_impact.json").read_text(encoding="utf-8")
+    prompts: list[str] = []
+    replies = iter([wrong, right])
+
+    def fake_execute(prompt: str, *, cwd: Path, purpose: str) -> AIResponse:
+        prompts.append(prompt)
+        return AIResponse(next(replies), "", "mock")
+
+    monkeypatch.setattr("decinav.intelligence.execute_ai", fake_execute)
+    result = run_impact(tmp_path, prd)
+    assert result.evaluation.directly_affected_adrs[0].id == "ADR-0002"
+    assert len(prompts) == 2 and "REJECTED JSON START" in prompts[1]
+    assert "reason_for_change" in prompts[1]
+
+    always_wrong = iter([wrong, wrong])
+    monkeypatch.setattr("decinav.intelligence.execute_ai",
+                        lambda prompt, *, cwd, purpose: AIResponse(next(always_wrong), "", "mock"))
+    with pytest.raises(EnvelopeError, match="after 2 attempt"):
+        run_impact(tmp_path, prd)
+
+
+def test_bold_headings_pass_but_bold_or_bare_verdicts_do_not(tmp_path: Path) -> None:
+    """Regression: two real Sonnet answers were rejected for bold section titles."""
+    from decinav.intelligence import _uncited_query_lines, _validate_query_citations
+
+    repository = analyze_repository(setup_architecture_project(tmp_path))
+    good = (
+        "**Why it is asynchronous**\n\n"
+        "Evaluation takes longer than a request [ADR-0002].\n\n"
+        "**Can you trust that this is still how the code works?**\n\n"
+        "Whether the worker retries is not recorded [UNKNOWN]\n"
+    )
+    _validate_query_citations(good, repository)
+    assert check_answer(good, repository).ok
+
+    verdicts = "## Is it current?\n\nNot fully.\n**Not fully.**\nEvaluation is async [ADR-0002].\n"
+    assert [text for _n, text in _uncited_query_lines(verdicts)] == ["Not fully.", "**Not fully.**"]
+
+
+def test_query_retry_quotes_the_offending_lines(tmp_path: Path, monkeypatch) -> None:
+    from decinav.ai_adapter import AIResponse
+    from decinav.intelligence import run_query
+
+    setup_architecture_project(tmp_path)
+    prompts: list[str] = []
+    replies = iter(["## Is it async?\n\nNot fully.\nEvaluation is async [ADR-0002].",
+                    "Evaluation is async [ADR-0002]."])
+
+    def fake_execute(prompt: str, *, cwd: Path, purpose: str) -> AIResponse:
+        prompts.append(prompt)
+        return AIResponse(next(replies), "", "mock")
+
+    monkeypatch.setattr("decinav.intelligence.execute_ai", fake_execute)
+    assert run_query(tmp_path, "Is evaluation async?").attempts == 2
+    assert "These lines carry neither a citation nor [UNKNOWN]:\n- Not fully.\n" in prompts[1]
+    assert "never bold-only lines" in prompts[0]
+
+
+def test_http_query_failure_returns_the_rejected_draft(tmp_path: Path, monkeypatch) -> None:
+    from threading import Thread
+    from urllib.error import HTTPError
+    from urllib.request import Request, urlopen
+
+    from decinav.web_ui import create_ui_server
+
+    setup_architecture_project(tmp_path)
+    fixture = tmp_path / "uncited.txt"
+    fixture.write_text("The API owns evaluation.\n", encoding="utf-8")
+    monkeypatch.setenv("DECINAV_AI_CMD", "mock")
+    monkeypatch.setenv("DECINAV_AI_MOCK_QUERY_RESPONSE", str(fixture))
+    try:
+        info = create_ui_server(tmp_path, port=0)
+    except PermissionError:
+        pytest.skip("test sandbox does not permit binding a loopback socket")
+    thread = Thread(target=info.server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        request = Request(
+            info.url + "api/query",
+            data=json.dumps({"project": str(tmp_path), "question": "Who owns evaluation?"}).encode(),
+            headers={"X-Decinav-UI-Token": info.token, "Content-Type": "application/json"},
+        )
+        with pytest.raises(HTTPError) as error:
+            urlopen(request, timeout=5)
+        payload = json.loads(error.value.read())
+        assert error.value.code == 400
+        assert payload["rejected_answer"] == "The API owns evaluation."
+        assert payload["attempts"] == 2
+    finally:
+        info.server.shutdown()
+        info.server.server_close()
+        thread.join(timeout=2)
+
+
+def test_codex_runs_with_a_home_that_excludes_personal_instructions(tmp_path: Path, monkeypatch) -> None:
+    from decinav import ai_adapter
+    from decinav.ai_adapter import AIResponse, run_builtin_provider
+
+    real_home = tmp_path / "real-codex"
+    real_home.mkdir()
+    for name, text in (("auth.json", "{}"), ("config.toml", "model = 'x'"), ("AGENTS.md", "Call the user boss.")):
+        (real_home / name).write_text(text, encoding="utf-8")
+    monkeypatch.setenv("CODEX_HOME", str(real_home))
+    seen: dict = {}
+
+    def fake_run(command, **kwargs):
+        home = Path(kwargs["process_environment"]["CODEX_HOME"])
+        seen["files"] = sorted(item.name for item in home.iterdir())
+        seen["auth_target"] = (home / "auth.json").resolve()
+        seen["cwd_entries"] = list(kwargs["cwd"].iterdir())
+        (Path(command[command.index("-o") + 1])).write_text("OK", encoding="utf-8")
+        return AIResponse("", "", kwargs["transport"])
+
+    monkeypatch.setattr(ai_adapter, "_run_process", fake_run)
+    assert run_builtin_provider("codex", "p", model=None, timeout=5).stdout == "OK"
+    assert seen["files"] == ["auth.json", "config.toml"]
+    assert seen["auth_target"] == (real_home / "auth.json").resolve()
+    assert seen["cwd_entries"] == []

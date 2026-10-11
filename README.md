@@ -73,6 +73,58 @@ Claude Code namespaces plugin skills, hence `/decinav:decinav-plan`. Codex, Curs
 other hosts use `./install.sh` from the repository root; see
 [Working with your coding agent](#working-with-your-coding-agent).
 
+## Runs on the model you already have
+
+decinav never calls a model API itself and holds no API key. It uses the AI you
+already pay for, in one of three ways:
+
+| You work in | What runs the model | Setup |
+|---|---|---|
+| Claude Code or Codex | The agent you are already talking to, through the skills | Install the plugin; nothing else |
+| A terminal or the browser workbench | Your local `claude` or `codex` CLI, under your own login | `decinav setup`, or the Setup tab |
+| CI | Any command you name | `DECINAV_AI_CMD` |
+
+You choose the model. `decinav setup` asks which CLI and which model; an empty
+model means "use that CLI's own default". In the browser, the Setup tab does the
+same and has a **Test** button that sends one short prompt and shows the reply time.
+
+![The Setup tab: choose Claude CLI, Codex CLI, a custom command, or no model, pick a model, and test it](docs/images/workbench-setup.jpg)
+
+```text
+$ decinav setup
+Which model should decinav use? It runs isolated, with no tools and no repository access.
+  1) Claude CLI      found on PATH
+  2) Codex CLI       found on PATH
+  3) Custom command  any CLI that reads a prompt
+  4) No model        deterministic commands only
+Choice [1]: 1
+Model (for example sonnet, opus, fable). Press Enter to use the claude CLI's own default: sonnet
+Model: claude · sonnet
+Saved to .decinav/config.json
+```
+
+Non-interactive: `decinav setup --provider codex --model <name>`. Check it with
+`decinav setup --show`.
+
+Every model call is isolated:
+
+- It runs in an empty temporary directory with no tools, so it cannot read or change your repository.
+- The prompt arrives on stdin and holds only what the command bundles: the relevant decisions, and the PRD or question.
+- Your personal instructions (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`) are not loaded, so they cannot color answers. Your login still works.
+- Nothing is sent anywhere except through your own CLI to your own provider.
+
+Measured once on a MacBook against the demo project (12 decisions). Your times will vary with model and load:
+
+| Run | Claude CLI, `sonnet` | Codex CLI, default model |
+|---|---|---|
+| Setup tab **Test** | 6 s | 12.8 s |
+| `decinav impact` on a PRD | 24 s | 35 s |
+| `decinav query` | 11 to 21 s over 3 runs | not measured |
+| `/decinav:decinav-plan` in headless Claude Code, PRD written and checked end to end | 63 s | not measured |
+
+Leaving out a personal `~/.codex/AGENTS.md` (34 KB on the test machine) cut a
+one-line Codex prompt from 9,633 to 2,154 tokens.
+
 ## How it works
 
 Three roles, kept separate on purpose:
@@ -110,7 +162,7 @@ coding agent through the skills.
 
 | Command | What it does | Model |
 |---|---|---|
-| `setup [--model claude\|codex\|command\|none]` | Detect a local model CLI once and save it to `.decinav/config.json` | no |
+| `setup [--provider claude\|codex\|command\|none] [--model <name>] [--show]` | Choose your local model CLI and model; saved to `.decinav/config.json` | no |
 | `init [--existing] [--overwrite-hook] [--watch <folder>]...` | Create `docs/adr`, install the commit-msg policy on the detected code folders (`src`, `app`, `lib`, `infra`, ...), keep ADRs trackable when `/docs` is ignored | no |
 | `new "<title>" --domain <d> [--depends-on ID] [--supersedes ID]` | Create the next proposed ADR; prompts for a reason per relationship; rejects unknown references | no |
 | `graph [--focus ID --depth N] [--domain <d>]` | Regenerate the Mermaid graph in `docs/adr/README.md` | no |
@@ -151,6 +203,15 @@ Install into Claude Code:
 
 As a plugin, each skill is invoked with the plugin prefix: `/decinav:decinav-plan`,
 `/decinav:decinav-query`, and so on. Local installs through `./install.sh` drop the prefix.
+
+What `/decinav:decinav-plan` does, from a real headless run on the demo project
+("let merchants export their shipment history as a CSV file"): in 63 seconds the
+agent read the compact decision list, loaded four relevant decisions in full,
+created `docs/prds/merchant-shipment-history-csv-export.md`, filled every section,
+ran `decinav prd lint` until it passed, ran `decinav impact --save`, and reported
+one affected decision, three prerequisites, seven risks, and four decisions that
+do not exist yet. It changed no file under `docs/adr`, and it ended by asking
+which open questions to answer before `/decinav:decinav-decide`.
 
 Install into Codex, Cursor, or another host:
 
@@ -288,9 +349,16 @@ in the served page, sends no CORS permission, loads no internet dependency, and
 serves only its packaged assets.
 
 Before a feature is built, the impact view shows which decisions it changes (red),
-which it relies on (blue), and which decisions are still missing (green, dashed):
+which it relies on (blue), and which decisions are still missing (green, dashed).
+This one is a real Claude Sonnet result for the demo's "guaranteed delivery windows" PRD:
 
 ![PRD impact: affected decisions in red, prerequisites in blue, a missing decision in green](docs/images/workbench-impact.jpg)
+
+Questions get answers where every line names the decision it rests on, or says
+`UNKNOWN` when the decisions do not establish it. Here the model notices that the
+decision's source file changed since it was last checked and says not to trust it yet:
+
+![A cited answer: every line ends with the decision it rests on, and unknowns are marked](docs/images/workbench-ask.jpg)
 
 The timeline lists decisions in the order they were made, with what replaced what:
 

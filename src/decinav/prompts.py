@@ -200,6 +200,9 @@ TRACEABILITY IS MANDATORY:
   entire multi-item list.
 - When the ADRs do not establish something, say so on its own line ending with
   [UNKNOWN] instead of a citation. That is the only line type allowed without one.
+- Use "## " Markdown headings for sections, never bold-only lines. Never write a
+  standalone verdict such as "Yes." or "Not fully."; put the verdict in a sentence
+  that carries its citation or [UNKNOWN].
 - Return only the answer in Markdown. Do not add a preamble about your role.
 - Distinguish what an ADR states from what is verified in code. When an ADR is
   proposed rather than accepted, or its freshness is not fresh, say so.

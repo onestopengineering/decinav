@@ -13,6 +13,12 @@ headless use.
 
 ### Added
 
+- You choose the model: `decinav setup` asks for the CLI and the model in a terminal, and takes `--provider`, `--model`, and `--show`. An empty model uses the CLI's own default; decinav no longer picks Sonnet. Codex models are passed with `-m`.
+- Setup tab: provider cards (Claude CLI, Codex CLI, custom command, none) showing what is installed, a model field with suggestions, and a Test button that sends one short prompt and reports the reply time.
+- Model calls no longer load the user's personal instructions (`~/.claude/CLAUDE.md` via `--setting-sources ""`, `~/.codex/AGENTS.md` via a throwaway `CODEX_HOME` that links only login and config). Logins keep working.
+- `impact` retries once with the exact rejection reason, like `query`. The query retry now quotes the offending lines.
+- Citation checks accept question headings and short bold section titles; bare verdict lines such as "Not fully." still need a citation or `[UNKNOWN]`.
+- The workbench shows a rejected draft, collapsed and marked as not validated, when an answer fails the citation check, and renders one claim per line.
 - `scripts/build_demo.py` builds "Parcel", a fictional demo repository, through the real workflow, so anyone can try the workbench without their own repository. README screenshots come from it.
 - `decinav setup`: detects `claude` or `codex` on PATH and saves `.decinav/config.json`; every model-backed command and the browser use it. Built-in isolated runners (empty directory, no tools, prompt on stdin). `DECINAV_AI_CMD` remains an override for CI.
 - Browser Setup tab: model selector that writes the same config; model-backed buttons stay disabled until a model exists.

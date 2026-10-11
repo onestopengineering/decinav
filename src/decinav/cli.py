@@ -11,7 +11,16 @@ from typing import Annotated
 import typer
 
 from decinav.adr import ADRCreationError, EditorError, create_adr, open_in_editor
-from decinav.config import ConfigError, choose_model, config_path, detect_providers, save_config
+from decinav.config import (
+    PROVIDER_LABELS,
+    SUGGESTED_MODELS,
+    ConfigError,
+    ModelConfig,
+    choose_model,
+    detect_providers,
+    load_config,
+    save_config,
+)
 from decinav.ai_adapter import AIAdapterError
 from decinav.frontmatter import ADRDomain, ADR_ID_PATTERN, ADRRelationship
 from decinav.generation import (
@@ -140,33 +149,51 @@ def init_project(
 
 @app.command("setup")
 def setup(
+    provider: Annotated[
+        str | None,
+        typer.Option("--provider", help="claude, codex, command, or none. Omit in a terminal to choose interactively."),
+    ] = None,
     model: Annotated[
         str | None,
-        typer.Option(
-            "--model",
-            help="claude, codex, command, or none. Default: first of claude/codex found on PATH.",
-        ),
-    ] = None,
-    claude_model: Annotated[
-        str | None,
-        typer.Option("--claude-model", help="Claude model alias for the built-in runner (default sonnet)."),
+        typer.Option("--model", help="Model for claude or codex, e.g. sonnet, opus, or a full model ID. Omit for the CLI's default."),
     ] = None,
     command: Annotated[
         str | None,
-        typer.Option("--command", help="Custom command template for --model command (same syntax as DECINAV_AI_CMD)."),
+        typer.Option("--command", help="Command template for --provider command (same syntax as DECINAV_AI_CMD)."),
     ] = None,
+    show: Annotated[
+        bool, typer.Option("--show", help="Print the saved model and exit.")
+    ] = False,
 ) -> None:
-    """Choose the local model once; saved to .decinav/config.json for every command and the UI."""
+    """Choose which local model CLI and model decinav uses; saved to .decinav/config.json."""
 
     project_root = Path.cwd()
+    detected = detect_providers()
+    if show:
+        try:
+            current = load_config(project_root)
+        except ConfigError as exc:
+            typer.secho(f"Error: {exc}", fg=typer.colors.RED, err=True)
+            raise typer.Exit(code=1) from exc
+        configured = current is not None and current.configured
+        typer.echo(f"Model: {current.describe() if configured else 'not configured'}")
+        typer.echo("Found on PATH: " + (", ".join(detected) if detected else "no model CLI"))
+        return
+
     try:
-        chosen = choose_model(model, claude_model=claude_model, command=command)
+        if provider is None and model is None and command is None and _stdin_is_interactive():
+            chosen = _choose_model_interactively(detected)
+        else:
+            chosen = choose_model(provider, model=model, command=command)
+            if provider is None and chosen.configured:
+                typer.echo(
+                    f"Chose {chosen.provider}: the first model CLI found on PATH. Change it with "
+                    "'decinav setup --provider <claude|codex> --model <name>'."
+                )
         path = save_config(project_root, chosen)
     except ConfigError as exc:
         typer.secho(f"Error: {exc}", fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1) from exc
-    detected = detect_providers()
-    typer.echo("Found on PATH: " + (", ".join(detected) if detected else "no model CLI"))
     typer.secho(f"Model: {chosen.describe()}", fg=typer.colors.GREEN)
     typer.echo(f"Saved to {_display_path(path, project_root)}")
     if not chosen.configured:
@@ -175,7 +202,46 @@ def setup(
             "codex and rerun 'decinav setup' to enable baseline, ingest, impact, and query."
         )
     else:
-        typer.echo("The model runs isolated: empty directory, no tools, prompt on stdin.")
+        typer.echo(
+            "It runs isolated: an empty temporary directory, no tools, the prompt on stdin, "
+            "under your own CLI login. decinav holds no API key."
+        )
+
+
+def _stdin_is_interactive() -> bool:
+    return sys.stdin.isatty()
+
+
+def _choose_model_interactively(detected: tuple[str, ...]) -> ModelConfig:
+    options = ["claude", "codex", "command", "none"]
+    typer.echo("Which model should decinav use? It runs isolated, with no tools and no repository access.")
+    for index, name in enumerate(options, start=1):
+        if name in {"claude", "codex"}:
+            state = "found on PATH" if name in detected else "not found on PATH"
+        elif name == "command":
+            state = "any CLI that reads a prompt"
+        else:
+            state = "deterministic commands only"
+        typer.echo(f"  {index}) {PROVIDER_LABELS[name]:<15} {state}")
+    default = options.index(detected[0]) + 1 if detected else len(options)
+    while True:
+        raw = typer.prompt("Choice", default=str(default)).strip()
+        if raw.isdigit() and 1 <= int(raw) <= len(options):
+            provider = options[int(raw) - 1]
+            break
+        typer.secho(f"Enter a number from 1 to {len(options)}.", fg=typer.colors.RED, err=True)
+    if provider in {"claude", "codex"}:
+        suggestions = SUGGESTED_MODELS.get(provider) or ()
+        hint = f" (for example {', '.join(suggestions)})" if suggestions else ""
+        name = typer.prompt(
+            f"Model{hint}. Press Enter to use the {provider} CLI's own default",
+            default="", show_default=False,
+        )
+        return choose_model(provider, model=name or None)
+    if provider == "command":
+        template = typer.prompt("Command template, e.g. my-agent --prompt-file {prompt_file}")
+        return choose_model("command", command=template)
+    return choose_model("none")
 
 
 @app.command("new")

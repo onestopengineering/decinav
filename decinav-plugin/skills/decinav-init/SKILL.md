@@ -23,7 +23,7 @@ Initialize `docs/adr`, create the Day 0 baseline, validate it, and explain the l
 3. **Create the baseline.**
    - New product, or the user passed a brief path in `$ARGUMENTS`: confirm the brief path (ask if none was given; a product brief, PRD, or README describing intent is fine), then run `decinav baseline --from-brief <path>`. Tell the user the result is *intended* architecture, not observed code.
    - Existing product: run `decinav baseline`. It reads only manifests, Dockerfiles, Compose, Terraform, CI, and Kubernetes files; it never sends source code or secrets.
-   - Both forms need `DECINAV_AI_CMD`. If the command reports it is not configured, run `decinav setup` (it detects claude or codex on PATH and saves .decinav/config.json) and retry. Do not write the baseline yourself.
+   - Both forms need a model. If the command reports `No model is configured`, run `decinav setup --show` to see which CLIs are installed, ask the user which one (claude or codex) and which model they want, then run `decinav setup --provider <claude|codex> --model <name>` (omit `--model` to keep that CLI's default) and retry. Never choose the provider or model for them. Do not write the baseline yourself.
 4. **Validate.** Run `decinav validate`. It must print `Validated 1 ADR(s).` If it fails, show the issues verbatim and stop.
 5. **Explain the loop** in a short message:
    - `/decinav-plan <feature>` writes a PRD grounded in decisions and checks its impact.

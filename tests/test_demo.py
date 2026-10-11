@@ -29,6 +29,11 @@ def test_demo_builder_produces_a_valid_repository_with_every_freshness_state(tmp
     assert sum(state == "fresh" for state in states.values()) == 8
     assert {record["status"] for record in records} == {"baseline", "accepted", "proposed"}
     assert (target / ".decinav" / "last-impact.json").is_file()
+    lint = subprocess.run(
+        [sys.executable, "-m", "decinav", "prd", "lint", "docs/prds/guaranteed-delivery-windows.md"],
+        cwd=target, capture_output=True, text=True, timeout=60,
+    )
+    assert lint.returncode == 0 and "PRD OK" in lint.stdout, lint.stdout + lint.stderr
 
     again = subprocess.run(
         [sys.executable, str(REPOSITORY_ROOT / "scripts" / "build_demo.py"), str(target)],

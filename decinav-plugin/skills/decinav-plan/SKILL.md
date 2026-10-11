@@ -28,8 +28,8 @@ Turn "$ARGUMENTS" into a PRD that is grounded in the decision graph and the code
    Delete the template comments.
 6. **Lint until clean.** Run `decinav prd lint <path>`. Fix every reported issue and rerun until it prints `PRD OK`.
 7. **Assess impact.**
-   - If a model is configured via `decinav setup` or `DECINAV_AI_CMD` (`printenv DECINAV_AI_CMD`): run `decinav impact <path> --visual --save` and use its output.
-   - Otherwise: reason yourself from the bodies you loaded. Produce the same four lists (directly affected ADRs with reasons, prerequisite ADRs with reasons, architectural risks as contradictions between the PRD and a current rule, proposed new ADR titles). Do not write `.decinav/last-impact.json` yourself. Update the PRD's Affected decisions if the assessment changed it, and lint again.
+   - Run `decinav impact <path> --visual --save` and use its output. It uses the model saved by `decinav setup` (or `DECINAV_AI_CMD`) and takes one to three minutes.
+   - Only if it fails with `No model is configured`: reason yourself from the bodies you loaded. Produce the same four lists (directly affected ADRs with reasons, prerequisite ADRs with reasons, architectural risks as contradictions between the PRD and a current rule, proposed new ADR titles). Do not write `.decinav/last-impact.json` yourself. Update the PRD's Affected decisions if the assessment changed it, and lint again.
 8. **Report and hand off.** Summarize the four lists with one sentence per item. Flag any cited ADR whose freshness is `aging` or `sources-changed`. Ask whether to proceed to `/decinav-decide` for the proposed decisions.
 
 ## Token notes

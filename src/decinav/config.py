@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import re
 from pathlib import Path
 import shutil
 from typing import Any
@@ -14,7 +15,15 @@ from decinav.provenance import PROVENANCE_DIRECTORY, _atomic_write, state_file
 CONFIG_FILENAME = "config.json"
 CONFIG_SCHEMA_VERSION = 1
 PROVIDERS = ("claude", "codex", "command", "none")
-DEFAULT_CLAUDE_MODEL = "sonnet"
+# Suggestions only; the user picks. An empty model means "the CLI's own default".
+SUGGESTED_MODELS = {"claude": ("sonnet", "opus", "fable"), "codex": ()}
+PROVIDER_LABELS = {
+    "claude": "Claude CLI",
+    "codex": "Codex CLI",
+    "command": "Custom command",
+    "none": "No model",
+}
+_MODEL_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,99}$")
 
 
 class ConfigError(RuntimeError):
@@ -32,12 +41,10 @@ class ModelConfig:
         return self.provider in {"claude", "codex", "command"}
 
     def describe(self) -> str:
-        if self.provider == "claude":
-            return f"claude ({self.model or DEFAULT_CLAUDE_MODEL}), isolated: no tools, empty directory"
-        if self.provider == "codex":
-            return "codex (read-only sandbox, empty directory)"
+        if self.provider in {"claude", "codex"}:
+            return f"{self.provider} · {self.model or 'CLI default model'}"
         if self.provider == "command":
-            return f"custom command: {self.command}"
+            return f"custom command · {self.command}"
         return "none"
 
     def to_json(self) -> dict[str, Any]:
@@ -92,30 +99,47 @@ def detect_providers() -> tuple[str, ...]:
     return tuple(name for name in ("claude", "codex") if shutil.which(name))
 
 
+def validate_model_name(model: str | None) -> str | None:
+    if model is None:
+        return None
+    cleaned = model.strip()
+    if not cleaned:
+        return None
+    if not _MODEL_NAME_PATTERN.fullmatch(cleaned):
+        raise ConfigError(
+            f"invalid model name {model!r}; use an alias such as sonnet or a full model ID"
+        )
+    return cleaned
+
+
 def choose_model(
-    requested: str | None,
+    provider: str | None,
     *,
-    claude_model: str | None = None,
+    model: str | None = None,
     command: str | None = None,
 ) -> ModelConfig:
-    """Resolve the model to save: an explicit choice, or the first CLI on PATH."""
+    """Resolve the configuration to save from the user's choice.
 
-    if requested == "command":
+    ``provider`` None means "first local CLI on PATH" for non-interactive use. The
+    model is always the user's: None keeps the CLI's own default.
+    """
+
+    model_name = validate_model_name(model)
+    if provider == "command":
         if not command or not command.strip():
-            raise ConfigError("--command is required with --model command")
+            raise ConfigError("a command is required for the custom command provider")
         return ModelConfig("command", None, command.strip())
-    if requested == "none":
+    if provider == "none":
         return ModelConfig("none")
-    if requested in {"claude", "codex"}:
-        if not shutil.which(requested):
+    if provider in {"claude", "codex"}:
+        if not shutil.which(provider):
             raise ConfigError(
-                f"'{requested}' was not found on PATH; install it or choose another provider"
+                f"'{provider}' was not found on PATH; install it or choose another provider"
             )
-        return ModelConfig(requested, claude_model or (DEFAULT_CLAUDE_MODEL if requested == "claude" else None))
-    if requested is not None:
-        raise ConfigError(f"unknown provider {requested!r}; choose from {', '.join(PROVIDERS)}")
+        return ModelConfig(provider, model_name)
+    if provider is not None:
+        raise ConfigError(f"unknown provider {provider!r}; choose from {', '.join(PROVIDERS)}")
     detected = detect_providers()
     if not detected:
         return ModelConfig("none")
-    provider = detected[0]
-    return ModelConfig(provider, claude_model or (DEFAULT_CLAUDE_MODEL if provider == "claude" else None))
+    return ModelConfig(detected[0], model_name)

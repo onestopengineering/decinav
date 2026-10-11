@@ -140,21 +140,40 @@
         </div>
 
         <div class="view" id="view-setup">
-          <div class="ai-notice" id="ai-notice" role="status">
-            <div class="ai-notice-row">
-              <div class="ai-notice-text"><span class="stat-label">Model</span><span id="model-description">checking…</span></div>
-              <div class="action-row">
-                <label for="model-provider" class="visually-hidden">Model provider</label>
-                <select id="model-provider" aria-label="Model provider">
-                  <option value="claude">Claude (claude CLI, Sonnet, no tools)</option>
-                  <option value="codex">Codex (read-only sandbox)</option>
-                  <option value="none">None (deterministic commands only)</option>
-                </select>
-                <button class="button ghost small" id="save-model" type="button">Save</button>
+          <section class="model-panel" id="ai-notice" aria-labelledby="model-panel-title">
+            <div class="model-panel-head">
+              <div>
+                <h3 id="model-panel-title">Model</h3>
+                <p class="model-panel-sub">The local CLI that writes baselines, extracts decisions, assesses impact, and answers questions. Validation and the graph never use a model.</p>
               </div>
+              <span class="model-current" id="model-description">checking…</span>
             </div>
-            <p id="model-hint" class="ai-notice-hint">Initialize, validate, and the graph never need a model. Baseline, ingest, impact, and questions run it isolated: empty directory, no tools, prompt on stdin. Saved to <code>.decinav/config.json</code>. Inside Claude Code the <code>/adr-*</code> skills use the agent you are already in.</p>
-          </div>
+            <div class="provider-grid" role="radiogroup" aria-label="Model provider">
+              <label class="provider-option" data-provider="claude"><input type="radio" name="model-provider" value="claude"><span class="po-name">Claude CLI</span><span class="po-state">checking…</span></label>
+              <label class="provider-option" data-provider="codex"><input type="radio" name="model-provider" value="codex"><span class="po-name">Codex CLI</span><span class="po-state">checking…</span></label>
+              <label class="provider-option" data-provider="command"><input type="radio" name="model-provider" value="command"><span class="po-name">Custom command</span><span class="po-state">any CLI that reads a prompt</span></label>
+              <label class="provider-option" data-provider="none"><input type="radio" name="model-provider" value="none"><span class="po-name">No model</span><span class="po-state">validation and graph only</span></label>
+            </div>
+            <div class="model-field" id="model-name-field">
+              <label for="model-name">Model</label>
+              <div class="model-input-row">
+                <input id="model-name" type="text" spellcheck="false" autocomplete="off" placeholder="CLI default">
+                <div class="model-suggestions" id="model-suggestions" aria-label="Suggested models"></div>
+              </div>
+              <small id="model-name-hint">Leave empty to use the CLI's own default model.</small>
+            </div>
+            <div class="model-field" id="model-command-field" hidden>
+              <label for="model-command">Command</label>
+              <input id="model-command" type="text" spellcheck="false" autocomplete="off" placeholder="my-agent --prompt-file {prompt_file}">
+              <small>Runs without a shell. Use {prompt} or {prompt_file}, or read the prompt from stdin.</small>
+            </div>
+            <div class="model-actions">
+              <button class="button ghost small" id="test-model" type="button">Test</button>
+              <button class="button small" id="save-model" type="button">Save</button>
+              <span class="model-test-result" id="model-test-result" role="status" aria-live="polite"></span>
+            </div>
+            <p class="model-panel-note">Runs isolated under your own CLI login: an empty temporary directory, no tools, the prompt on stdin. decinav holds no API key. Inside Claude Code, the <code>/decinav:*</code> skills use the agent you are already in.</p>
+          </section>
           <div class="setup-grid">
             <div class="setup-card"><div class="step-number">1</div><div><h3>Initialize</h3><p>Create <code>docs/adr</code> and install the warning-only commit policy. Nothing is committed.</p><button class="button ghost small" data-action="init" type="button">Initialize repository</button></div></div>
             <div class="setup-card"><div class="step-number">2</div><div><h3>Baseline</h3><p>The Day 0 record from manifests, compose, and CI files. Never source code.</p><button class="button small" data-action="baseline" type="button">Generate baseline</button></div></div>

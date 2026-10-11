@@ -142,6 +142,46 @@ write("services/ingest/webhooks.go", "package ingest\n\n// Accept carrier webhoo
 run("git", "add", "."); run("git", "commit", "-qm", "Deduplicate carrier retries [ADR-0007]")
 run(DECINAV, "attest", "ADR-0001", "ADR-0003", "ADR-0005", "ADR-0006", "ADR-0008")
 propose(second, "eu-launch")
+write("docs/prds/guaranteed-delivery-windows.md", """# Guaranteed delivery windows
+
+## Problem
+
+Enterprise merchants want to promise customers a delivery window and refund them automatically when it is missed. Today estimates are informational only.
+
+## Users
+
+- Enterprise merchants selling premium delivery.
+- Support agents handling late-delivery claims.
+
+## Requirements
+
+1. A merchant can mark a shipment as guaranteed, with a delivery window.
+2. When the window passes without a delivered status, the shipment is marked late within 15 minutes.
+3. A late guaranteed shipment sends a refund request to the merchant's billing integration.
+4. Merchants see window changes live on the dashboard.
+
+## Affected decisions
+
+- ADR-0012: estimates are informational today; a guarantee makes them binding.
+- ADR-0008: the status state machine needs a late status and its transitions.
+- ADR-0003: window commitments are stored with the shipment.
+- ADR-0009: live updates carry window changes to the dashboard.
+
+## Proposed decisions
+
+- Define how delivery-window guarantees are computed and refunded
+
+## Open questions
+
+- Which carriers report delivery scans reliably enough to guarantee a window?
+- Who pays the refund when the carrier caused the delay?
+
+## Sources
+
+- ADR-0003, ADR-0008, ADR-0009, ADR-0012
+- docs/specs/estimates.md
+""")
+run(DECINAV, "prd", "lint", "docs/prds/guaranteed-delivery-windows.md")
 head = run("git", "rev-parse", "HEAD").strip()
 (ROOT / ".decinav" / "last-impact.json").write_text(json.dumps({
   "schema_version": 1, "prd": "docs/prds/guaranteed-delivery-windows.md", "generated_at": "2026-10-11T09:30:00Z", "commit": head,

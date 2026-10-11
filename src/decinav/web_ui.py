@@ -9,12 +9,15 @@ import json
 import os
 from pathlib import Path
 import secrets
+import time
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 import webbrowser
 
 from decinav.adr import ADRCreationError
 from decinav.config import (
+    PROVIDER_LABELS,
+    SUGGESTED_MODELS,
     ConfigError,
     ModelConfig,
     choose_model,
@@ -22,7 +25,7 @@ from decinav.config import (
     load_config,
     save_config,
 )
-from decinav.ai_adapter import AIAdapterError
+from decinav.ai_adapter import AIAdapterError, execute_with_config
 from decinav.generation import (
     BatchWriteError,
     CandidateValidationError,
@@ -249,14 +252,28 @@ class ArchitectureUIService:
     def dispatch(self, action: str, payload: dict[str, Any]) -> dict[str, Any]:
         project = self.resolve_project(payload.get("project"))
         if action == "setup":
-            provider = payload.get("provider")
-            if not isinstance(provider, str):
-                raise UIError("field 'provider' must be a string")
-            model = choose_model(provider, claude_model=payload.get("claude_model") or None)
-            save_config(project, model)
+            chosen = _candidate_model(payload)
+            save_config(project, chosen)
             return {
-                "message": f"Model saved: {model.describe()}.",
+                "message": f"Model saved: {chosen.describe()}.",
                 "status": self.status(project),
+            }
+        if action == "test_model":
+            chosen = _candidate_model(payload)
+            if not chosen.configured:
+                raise UIError("choose Claude CLI, Codex CLI, or a custom command to test")
+            started = time.monotonic()
+            response = execute_with_config(
+                chosen, "Reply with exactly the word OK and nothing else.", cwd=project, timeout=120
+            )
+            seconds = round(time.monotonic() - started, 1)
+            reply = " ".join(response.stdout.split())[:120]
+            ok = "OK" in reply.upper()
+            return {
+                "message": f"{chosen.describe()} replied in {seconds} s." if ok else f"{chosen.describe()} replied, but not with OK.",
+                "ok": ok,
+                "seconds": seconds,
+                "reply": reply,
             }
         if action == "init":
             result = initialize_project(
@@ -547,6 +564,10 @@ class _ArchUIHandler(BaseHTTPRequestHandler):
 
     def _send_user_error(self, exc: Exception) -> None:
         payload: dict[str, Any] = {"error": str(exc)}
+        rejected = getattr(exc, "answer", None)
+        if isinstance(rejected, str):
+            payload["rejected_answer"] = rejected
+            payload["attempts"] = getattr(exc, "attempts", None)
         analysis = getattr(exc, "analysis", None)
         if analysis is not None:
             payload["issues"] = [
@@ -638,11 +659,26 @@ def _model_status(project: Path) -> dict[str, Any]:
         "ai_configured": configured,
         "model": {
             "provider": provider,
+            "model": config.model if config else None,
+            "command": config.command if config else None,
             "description": description,
             "available": list(detect_providers()),
-            "claude_model": config.model if config and config.provider == "claude" else None,
+            "suggestions": {name: list(values) for name, values in SUGGESTED_MODELS.items()},
+            "labels": dict(PROVIDER_LABELS),
         },
     }
+
+
+def _candidate_model(payload: dict[str, Any]) -> ModelConfig:
+    provider = payload.get("provider")
+    model = payload.get("model")
+    command = payload.get("command")
+    if not isinstance(provider, str):
+        raise UIError("field 'provider' must be a string")
+    for name, value in (("model", model), ("command", command)):
+        if value is not None and not isinstance(value, str):
+            raise UIError(f"field '{name}' must be a string")
+    return choose_model(provider, model=model or None, command=command or None)
 
 
 def _required_string(payload: dict[str, Any], field: str) -> str:
